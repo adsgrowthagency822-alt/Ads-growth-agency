@@ -1,0 +1,301 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ADS GROWTH AGENCY</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#081225;color:#fff;font-family:Arial,sans-serif}
+header{padding:18px;background:#101d35;display:flex;justify-content:space-between;align-items:center}
+.logo{font-size:21px;font-weight:bold;color:#22c55e}
+main{max-width:950px;margin:25px auto;padding:15px}
+.card{background:#14233d;padding:20px;border-radius:14px;margin-bottom:18px}
+h2{margin-top:0}
+input,textarea{width:100%;padding:13px;margin:7px 0;border:1px solid #334766;border-radius:8px;background:#09162b;color:white}
+button{padding:12px 16px;border:0;border-radius:8px;background:#16a34a;color:white;font-weight:bold;margin:5px 3px;cursor:pointer}
+.secondary{background:#2563eb}
+.danger{background:#dc2626}
+.hidden{display:none}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.item{background:#0b1930;padding:14px;border-radius:10px;margin:10px 0}
+small{color:#b8c6dc}
+a{color:#60a5fa;overflow-wrap:anywhere}
+#message{color:#facc15}
+</style>
+</head>
+<body>
+<header>
+ <div class="logo">ADS GROWTH 📈</div>
+ <button id="logout" class="danger hidden" onclick="logout()">Logout</button>
+</header>
+
+<main>
+<div id="message"></div>
+
+<section id="auth">
+ <div class="card">
+  <h2>Welcome to ADS GROWTH AGENCY</h2>
+  <p>Create and manage your landing pages.</p>
+  <div class="grid">
+   <div>
+    <h3>Login</h3>
+    <input id="loginEmail" type="email" placeholder="Email">
+    <input id="loginPassword" type="password" placeholder="Password">
+    <button onclick="login()">Login</button>
+   </div>
+   <div>
+    <h3>Create Account</h3>
+    <input id="signupName" placeholder="Your Name">
+    <input id="signupEmail" type="email" placeholder="Email">
+    <input id="signupPassword" type="password" placeholder="Password (8 characters)">
+    <button onclick="signup()">Sign Up</button>
+   </div>
+  </div>
+ </div>
+</section>
+
+<section id="dashboard" class="hidden">
+ <div class="card">
+  <h2 id="welcome">Dashboard</h2>
+  <div class="grid">
+   <div class="item"><h3>My Pages</h3><h2 id="pageCount">0</h2></div>
+   <div class="item"><h3>My Leads</h3><h2 id="leadCount">0</h2></div>
+  </div>
+ </div>
+
+ <div class="card">
+  <h2 id="formHeading">Create Landing Page</h2>
+  <input id="pageTitle" placeholder="Page Title">
+  <input id="productName" placeholder="Product Name">
+  <textarea id="description" placeholder="Product Description"></textarea>
+  <input id="price" placeholder="Price (example: ₹499)">
+  <input id="image" placeholder="Product Image URL (https://...)">
+  <input id="buttonText" placeholder="Button Text" value="Buy Now">
+  <input id="pixelId" placeholder="Your Meta Pixel ID (optional)">
+  <button onclick="savePage()" id="saveButton">Create Page</button>
+  <button class="secondary hidden" id="cancelEdit" onclick="resetForm()">Cancel Edit</button>
+ </div>
+
+ <div class="card">
+  <h2>My Landing Pages</h2>
+  <div id="pages">Loading...</div>
+ </div>
+
+ <div class="card">
+  <h2>Customer Leads</h2>
+  <div id="leads">No leads yet.</div>
+ </div>
+
+ <div class="card hidden" id="adminBox">
+  <h2>Admin Overview</h2>
+  <div id="adminStats">Loading...</div>
+ </div>
+</section>
+</main>
+
+<script>
+let token=localStorage.getItem("ads_token");
+let editingId=null;
+let pages=[];
+
+function msg(text){
+ document.getElementById("message").textContent=text;
+}
+
+async function api(url,options={}){
+ options.headers=options.headers||{};
+ if(token) options.headers.Authorization="Bearer "+token;
+ if(options.body) options.headers["Content-Type"]="application/json";
+ const r=await fetch(url,options);
+ const data=await r.json().catch(()=>({}));
+ if(!r.ok) throw new Error(data.error||"Request failed");
+ return data;
+}
+
+function showDashboard(user){
+ document.getElementById("auth").classList.add("hidden");
+ document.getElementById("dashboard").classList.remove("hidden");
+ document.getElementById("logout").classList.remove("hidden");
+ document.getElementById("welcome").textContent="Welcome, "+user.name;
+ if(user.role==="admin"){
+  document.getElementById("adminBox").classList.remove("hidden");
+  loadAdmin();
+ }
+ loadAll();
+}
+
+async function signup(){
+ try{
+  const data=await api("/api/signup",{
+   method:"POST",
+   body:JSON.stringify({
+    name:document.getElementById("signupName").value,
+    email:document.getElementById("signupEmail").value,
+    password:document.getElementById("signupPassword").value
+   })
+  });
+  token=data.token;
+  localStorage.setItem("ads_token",token);
+  showDashboard(data.user);
+  msg("Account created successfully!");
+ }catch(e){msg(e.message)}
+}
+
+async function login(){
+ try{
+  const data=await api("/api/login",{
+   method:"POST",
+   body:JSON.stringify({
+    email:document.getElementById("loginEmail").value,
+    password:document.getElementById("loginPassword").value
+   })
+  });
+  token=data.token;
+  localStorage.setItem("ads_token",token);
+  showDashboard(data.user);
+  msg("Login successful!");
+ }catch(e){msg(e.message)}
+}
+
+function logout(){
+ localStorage.removeItem("ads_token");
+ token=null;
+ location.reload();
+}
+
+async function loadAll(){
+ try{
+  pages=await api("/api/pages");
+  document.getElementById("pageCount").textContent=pages.length;
+  renderPages();
+  const leads=await api("/api/leads");
+  document.getElementById("leadCount").textContent=leads.length;
+  document.getElementById("leads").innerHTML=leads.length?
+   leads.map(l=>`<div class="item"><b>${safe(l.customer_name)}</b><br>Phone: ${safe(l.phone)}<br>Email: ${safe(l.email)}<br><small>Page: ${safe(l.page_title)}</small></div>`).join("")
+   :"No leads yet.";
+ }catch(e){msg(e.message)}
+}
+
+function safe(value){
+ return String(value||"").replace(/[&<>"']/g,c=>({
+ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+ })[c]);
+}
+
+function renderPages(){
+ const box=document.getElementById("pages");
+ if(!pages.length){box.textContent="No landing pages created yet.";return}
+ box.innerHTML=pages.map(p=>`
+ <div class="item">
+ <h3>${safe(p.title)}</h3>
+ <p>${safe(p.product_name)} — ${safe(p.price)}</p>
+ <p>Status: ${p.published?"Published":"Draft"}</p>
+ ${p.published?`<a target="_blank" href="/p/${encodeURIComponent(p.slug)}">Open Landing Page</a>`:""}
+ <p><button onclick="editPage(${p.id})" class="secondary">Edit</button>
+ <button onclick="publishPage(${p.id},${p.published?0:1})">${p.published?"Unpublish":"Publish"}</button>
+ <button onclick="deletePage(${p.id})" class="danger">Delete</button></p>
+ </div>`).join("");
+}
+
+function getForm(){
+ return {
+  title:document.getElementById("pageTitle").value,
+  product_name:document.getElementById("productName").value,
+  description:document.getElementById("description").value,
+  price:document.getElementById("price").value,
+  image:document.getElementById("image").value,
+  button_text:document.getElementById("buttonText").value,
+  pixel_id:document.getElementById("pixelId").value
+ };
+}
+
+async function savePage(){
+ try{
+  const data=getForm();
+  if(!data.title||!data.product_name) return msg("Enter page title and product name.");
+  if(editingId){
+   await api("/api/pages/"+editingId,{
+    method:"PUT",body:JSON.stringify(data)
+   });
+   msg("Page updated!");
+  }else{
+   const result=await api("/api/pages",{
+    method:"POST",body:JSON.stringify(data)
+   });
+   msg("Page created. Publish it to make it public. Slug: "+result.slug);
+  }
+  resetForm();
+  loadAll();
+ }catch(e){msg(e.message)}
+}
+
+function editPage(id){
+ const p=pages.find(x=>x.id===id);
+ if(!p)return;
+ editingId=id;
+ document.getElementById("pageTitle").value=p.title;
+ document.getElementById("productName").value=p.product_name;
+ document.getElementById("description").value=p.description||"";
+ document.getElementById("price").value=p.price||"";
+ document.getElementById("image").value=p.image||"";
+ document.getElementById("buttonText").value=p.button_text||"Buy Now";
+ document.getElementById("pixelId").value=p.pixel_id||"";
+ document.getElementById("formHeading").textContent="Edit Landing Page";
+ document.getElementById("saveButton").textContent="Save Changes";
+ document.getElementById("cancelEdit").classList.remove("hidden");
+ window.scrollTo(0,0);
+}
+
+function resetForm(){
+ editingId=null;
+ ["pageTitle","productName","description","price","image","pixelId"].forEach(id=>document.getElementById(id).value="");
+ document.getElementById("buttonText").value="Buy Now";
+ document.getElementById("formHeading").textContent="Create Landing Page";
+ document.getElementById("saveButton").textContent="Create Page";
+ document.getElementById("cancelEdit").classList.add("hidden");
+}
+
+async function publishPage(id,published){
+ try{
+  await api("/api/pages/"+id+"/publish",{
+   method:"PATCH",body:JSON.stringify({published:!!published})
+  });
+  msg(published?"Page published!":"Page unpublished.");
+  loadAll();
+ }catch(e){msg(e.message)}
+}
+
+async function deletePage(id){
+ if(!confirm("Delete this page and its leads?"))return;
+ try{
+  await api("/api/pages/"+id,{method:"DELETE"});
+  msg("Page deleted.");
+  loadAll();
+ }catch(e){msg(e.message)}
+}
+
+async function loadAdmin(){
+ try{
+  const s=await api("/api/admin/stats");
+  document.getElementById("adminStats").textContent=
+   "Users: "+s.users+" | Pages: "+s.pages+" | Leads: "+s.leads;
+ }catch(e){msg(e.message)}
+}
+
+async function start(){
+ if(!token)return;
+ try{
+  const user=await api("/api/me");
+  showDashboard(user);
+ }catch(e){
+  localStorage.removeItem("ads_token");
+  token=null;
+ }
+}
+start();
+</script>
+</body>
+     </html>
+   
